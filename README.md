@@ -7,4 +7,3 @@
 - Format: DICOM → NIfTI conversion required
 - Task: Binary classification (HCM vs Healthy) + optional segmentation
 
-## 🏗️ System Architecture
