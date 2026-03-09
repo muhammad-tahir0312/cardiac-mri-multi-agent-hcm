@@ -1,0 +1,200 @@
+# ============================================================
+# base.yaml — Central configuration for the HCM MAS pipeline
+# All file paths are relative to the project root unless noted.
+# Override values via CLI:  key=value  (OmegaConf dot-notation)
+# ============================================================
+
+# ----------------------------------------------------------
+# Reproducibility
+# ----------------------------------------------------------
+seed: 42
+
+# ----------------------------------------------------------
+# Paths
+# ----------------------------------------------------------
+paths:
+  data_raw:        data/raw
+  data_processed:  data/processed
+  splits:          data/splits
+  models:          results/models
+  logs:            results/logs
+  figures:         results/figures
+  predictions:     results/predictions
+
+# ----------------------------------------------------------
+# Data characteristics (verified from dataset scan)
+# ----------------------------------------------------------
+data:
+  classes:
+    - Normal
+    - Sick
+  class_to_idx:
+    Normal: 0
+    Sick:   1
+  total_images:  59419
+  normal_images: 37564
+  sick_images:   21855
+  dcm_extension: ".dcm"
+  nifti_extension: ".nii.gz"
+
+# ----------------------------------------------------------
+# Patient splits (ratios used by 03_create_patient_splits.py)
+# ----------------------------------------------------------
+splits:
+  train_ratio: 0.80
+  val_ratio:   0.10
+  test_ratio:  0.10
+
+# ----------------------------------------------------------
+# Preprocessing
+# ----------------------------------------------------------
+preprocessing:
+  # Target spatial dimensions after resizing (D x H x W)
+  target_shape:
+    depth:  32
+    height: 224
+    width:  224
+
+  # Intensity normalisation mode: "zscore" | "minmax" | "percentile"
+  normalization: "zscore"
+
+  # Percentile clip before normalisation (removes outlier intensities)
+  intensity_clip:
+    lower_percentile: 1.0
+    upper_percentile: 99.0
+
+  # Whether to apply rescale slope/intercept during DICOM read
+  rescale_dicom: true
+
+  # Minimum slices to accept from RouterAgent
+  min_slices: 10
+
+# ----------------------------------------------------------
+# Augmentation  (TorchIO-based, applied only during training)
+# ----------------------------------------------------------
+augmentation:
+  enabled: true
+
+  # Spatial
+  random_flip:
+    axes: [0, 1, 2]
+    flip_probability: 0.5
+
+  random_affine:
+    scales:      [0.9, 1.1]
+    degrees:     10          # rotation degrees per axis
+    translation: 10          # mm
+    probability: 0.5
+
+  random_elastic_deformation:
+    num_control_points: 5    # grid spacing = D/(n-1) = 32/4 = 8 > max_displacement
+    max_displacement:   4.0
+    probability:        0.3
+
+  # Intensity
+  random_noise:
+    mean:  0.0
+    std:   [0.0, 0.05]
+    probability: 0.3
+
+  random_bias_field:
+    coefficients: 0.5
+    order:        3
+    probability:  0.3
+
+  random_gamma:
+    log_gamma: 0.3
+    probability: 0.3
+
+  random_motion:
+    degrees:     5
+    translation: 5
+    num_transforms: 2
+    probability: 0.2
+
+# ----------------------------------------------------------
+# Dataset / DataLoader
+# ----------------------------------------------------------
+dataset:
+  # Number of worker processes for DataLoader
+  num_workers: 4
+  pin_memory:  true
+  prefetch_factor: 2
+
+# ----------------------------------------------------------
+# Training
+# ----------------------------------------------------------
+training:
+  batch_size:    8
+  epochs:        100
+  learning_rate: 1.0e-4
+  weight_decay:  1.0e-5
+  lr_scheduler:  "cosine"    # "cosine" | "step" | "plateau"
+  step_size:     30          # used when scheduler = "step"
+  gamma:         0.1         # LR decay factor
+  patience:      15          # early-stopping patience (epochs)
+  amp:           true        # automatic mixed precision
+
+  # Class-imbalance handling
+  # loss = "cross_entropy" | "focal" | "weighted_cross_entropy"
+  loss: "weighted_cross_entropy"
+  focal_gamma: 2.0
+
+  # Auto-compute class weights from training split
+  compute_class_weights: true
+
+  # Gradient clipping (0.0 = disabled)
+  clip_grad_norm: 1.0
+
+  # Warmup epochs before LR schedule starts
+  warmup_epochs: 5
+
+  # Checkpoint saving
+  save_best_metric: "val_auroc"   # "val_loss" | "val_auroc" | "val_f1"
+  save_last: true
+
+# ----------------------------------------------------------
+# Segmentation Agent
+# ----------------------------------------------------------
+segmentation:
+  enabled: false             # toggle for inference pipeline
+  model: "unet3d"
+  in_channels:  1
+  out_channels: 4            # Background, LV, RV, Myocardium
+  features:     [16, 32, 64, 128, 256]
+  dropout:      0.1
+  # Loss: "dice" | "dice_ce" | "focal_dice"
+  loss: "dice_ce"
+  dice_smooth: 1.0e-5
+  checkpoint:   null         # path to pretrained weights
+
+# ----------------------------------------------------------
+# Classification Agent
+# ----------------------------------------------------------
+classification:
+  # "resnet3d_18" | "resnet3d_50" | "slice_aggregation"
+  model: "resnet3d_18"
+  in_channels: 1
+  num_classes: 2
+  dropout:     0.5
+  pretrained:  false         # 2D ImageNet init (slice_aggregation only)
+  checkpoint:  null
+  # Slice aggregation specifics (used when model = "slice_aggregation")
+  backbone_2d: "resnet18"    # timm model name for 2D backbone
+  aggregation: "attention"   # "mean" | "max" | "attention"
+
+# ----------------------------------------------------------
+# Logging / Experiment tracking
+# ----------------------------------------------------------
+logging:
+  level:   "INFO"            # "DEBUG" | "INFO" | "WARNING"
+  use_wandb: false
+  wandb_project: "cardiac-hcm-mas"
+  wandb_entity:  null
+
+# ----------------------------------------------------------
+# Router Agent
+# ----------------------------------------------------------
+router:
+  priority_keywords: ["1-short", "short", "body"]
+  min_slices: 10

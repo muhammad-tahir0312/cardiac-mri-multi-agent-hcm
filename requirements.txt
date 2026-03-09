@@ -2,7 +2,9 @@
 numpy>=1.24.0
 pandas>=2.0.0
 matplotlib>=3.7.0
+seaborn>=0.13.0
 scikit-learn>=1.3.0
+scipy>=1.11.0
 
 # Medical Imaging
 pydicom>=2.4.0
@@ -15,11 +17,34 @@ torch>=2.0.0
 torchvision>=0.15.0
 monai>=1.3.0
 
-# Utilities
-tqdm>=4.65.0
+# ----------------------------------------------------------
+# Model utilities
+# ----------------------------------------------------------
+einops>=0.7.0          # tensor rearranging (used in slice aggregation)
+timm>=0.9.0            # pretrained 2-D CNN backbones for slice aggregation
+
+# ----------------------------------------------------------
+# Configuration & experiment tracking
+# ----------------------------------------------------------
 omegaconf>=2.3.0
 tensorboard>=2.14.0
 wandb>=0.15.0
 
+# ----------------------------------------------------------
+# Utilities
+# ----------------------------------------------------------
+tqdm>=4.65.0
+rich>=13.0.0           # pretty console output for training loop
+pydantic>=2.0.0        # runtime config validation
+
+# ----------------------------------------------------------
+# Testing
+# ----------------------------------------------------------
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# ----------------------------------------------------------
 # Notebooks
+# ----------------------------------------------------------
 jupyter>=1.0.0
+ipywidgets>=8.0.0
