@@ -80,10 +80,7 @@ python scripts/03_create_patient_splits.py \
 	--val_ratio 0.10 \
 	--test_ratio 0.10 \
 	--seed 42
-```brightnessctl set 50%
-1234
-
-xrandr --output eDP-1 --brightness 1.0
+```
 
 
 Outputs:
@@ -92,96 +89,60 @@ Outputs:
 - `data/splits/val.csv`
 - `data/splits/test.csv`
 
-### 3) Preprocess all patients to NIfTI
+---
+
+## 2D Image Pipeline (Nested PNG/JPG)
+
+Use this path when training directly on image slices (without NIfTI conversion).
+
+### 1) Create leakage-safe patient-level image splits
 
 ```bash
-python scripts/04_preprocess_dataset.py \
-	--config src/config/base.yaml \
-	--splits data/splits \
-	--output data/processed \
-	--workers 4
+python scripts/08_create_image_splits.py \
+	--data_root data/raw \
+	--splits_dir data/splits_image \
+	--train_ratio 0.80 \
+	--val_ratio 0.10 \
+	--test_ratio 0.10 \
+	--seed 42
 ```
 
-Useful flags:
-
-- `--dry_run` (preview only)
-- `--overwrite` (rebuild existing processed files)
-
-Main output:
-
-- `data/processed/manifest.csv`
-
-### 4) Train classifier
+Optional 10-fold image splits:
 
 ```bash
-python scripts/05_train.py --config src/config/base.yaml
+python scripts/08_create_image_splits.py --kfolds 10 --kfold_val_ratio 0.10
 ```
 
-Example with overrides:
+### 2) Train 2D image classifier
 
 ```bash
-python scripts/05_train.py --config src/config/base.yaml \
-	training.epochs=30 \
-	training.batch_size=4 \
-	training.learning_rate=5e-5
+python scripts/09_train_image_classifier.py --config src/config/image2d.yaml
 ```
 
-Outputs:
-
-- checkpoints: `results/models/cls_<model>_<timestamp>/`
-- logs: `results/logs/cls_<model>_<timestamp>/`
-
-### 5) Run prediction/evaluation
-
-Default (latest checkpoint on test split):
+Example override:
 
 ```bash
-python scripts/06_predict.py
+python scripts/09_train_image_classifier.py --config src/config/image2d.yaml \
+	training.batch_size=32 \
+	model.backbone=resnet50
 ```
 
-With validation threshold tuning:
+Saved outputs include:
+
+- `results/models/image2d/<run_name>/best.pt`
+- `results/logs/image2d/<run_name>/test_metrics.json`
+- `results/logs/image2d/<run_name>/test_predictions.csv`
+
+`test_metrics.json` reports Recall/Sensitivity, Specificity, F1, AUROC, and confusion matrices at threshold `0.5` and at a validation-optimized threshold.
+
+### 3) Single-image inference with confidence score
 
 ```bash
-python scripts/06_predict.py \
-	--splits test \
-	--tune_threshold_on_val \
-	--threshold_metric f1_macro \
-	--threshold_min 0.05 \
-	--threshold_max 0.95 \
-	--threshold_steps 181
+python scripts/10_predict_single_image.py \
+	--image data/raw/Sick/Directory_17/example.png \
+	--checkpoint results/models/image2d/<run_name>/best.pt \
+	--config src/config/image2d.yaml
 ```
-
-Prediction outputs:
-
-- `results/predictions/<run_name>/predictions.csv`
-- `results/predictions/<run_name>/metrics.json`
-- `results/predictions/<run_name>/classification_report.txt`
-- `results/predictions/<run_name>/confusion_matrix.png`
-- `results/predictions/<run_name>/roc_curve.png`
-
-### 6) Optional: Stratified k-fold evaluation
-
-Generate k-fold split files only:
-
-```bash
-python scripts/07_kfold_evaluate.py --n_splits 5 --val_ratio 0.2
-```
-
-Run fold-wise training and aggregate metrics:
-
-```bash
-python scripts/07_kfold_evaluate.py \
-	--run_training \
-	--epochs 30 \
-	--patience 10 \
-	--num_workers 0
-```
-
-Outputs:
-
-- fold splits: `data/splits_kfold/fold_XX/{train,val,test}.csv`
-- fold summary: `data/splits_kfold/folds_summary.json`
-- aggregate results (after training): `data/splits_kfold/kfold_results.json`
 
 ---
 
@@ -199,12 +160,6 @@ Important keys to tune:
 ---
 
 ## Common Issues
-
-- **No checkpoint found in prediction**  
-	Run `scripts/05_train.py` first, or pass `--checkpoint` explicitly.
-
-- **Manifest missing**  
-	Run `scripts/04_preprocess_dataset.py` first.
 
 - **Very slow training on CPU**  
 	This is expected for 3D CNNs. Reduce epochs/batch size for quick experiments or use GPU.

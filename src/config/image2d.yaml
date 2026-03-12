@@ -1,0 +1,89 @@
+# ============================================================
+# image2d.yaml — 2D CMR image classification configuration
+# ============================================================
+
+seed: 42
+
+paths:
+  data_root: data/raw
+  splits_image: data/splits_image
+  models_2d: results/models/image2d
+  logs_2d: results/logs/image2d
+  predictions_2d: results/predictions/image2d
+
+data:
+  classes:
+    - Normal
+    - Sick
+  class_to_idx:
+    Normal: 0
+    Sick: 1
+  valid_extensions:
+    - .png
+    - .jpg
+    - .jpeg
+    - .bmp
+    - .tif
+    - .tiff
+
+  grayscale: true
+  replicate_to_rgb_if_pretrained: true
+  image_size: 224
+
+  normalization:
+    mean_grayscale: [0.5]
+    std_grayscale: [0.5]
+    mean_rgb: [0.485, 0.456, 0.406]
+    std_rgb: [0.229, 0.224, 0.225]
+
+split:
+  strategy: patient_subdirectory
+  train_ratio: 0.80
+  val_ratio: 0.10
+  test_ratio: 0.10
+  seed: 42
+
+augmentation:
+  rotation_degrees: 15
+  horizontal_flip_p: 0.5
+  affine_translate: [0.1, 0.1]
+  sharpness_factor: 1.2
+  sharpness_p: 0.3
+  gaussian_noise_mean: 0.0
+  gaussian_noise_std: 0.01
+  gaussian_noise_p: 0.3
+
+model:
+  backbone: resnet18   # resnet18 | resnet50 | efficientnet_b0
+  pretrained: true
+  in_channels: 1
+  num_classes: 2
+  dropout: 0.2
+
+training:
+  batch_size: 64
+  epochs: 30
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-4
+  num_workers: 4
+  pin_memory: true
+  amp: true
+
+  # imbalance_strategy = sampler | loss_weights | none
+  imbalance_strategy: sampler
+
+  # loss = ce | weighted_ce | focal
+  loss: weighted_ce
+  focal_gamma: 2.0
+
+  # [Normal, Sick]
+  class_weights: [0.6, 1.0]
+
+  early_stopping_patience: 8
+  save_best_metric: val_recall
+
+threshold_optimization:
+  metric: youden_j  # youden_j | f1 | balanced_accuracy
+  min: 0.05
+  max: 0.95
+  steps: 181
