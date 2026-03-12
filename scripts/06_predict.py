@@ -62,6 +62,7 @@ from sklearn.metrics import (
     roc_curve,
     f1_score,
     accuracy_score,
+    balanced_accuracy_score,
 )
 
 from src.agents.classification_agent import ClassificationAgent
@@ -108,14 +109,96 @@ def load_volume(nifti_path: Path, device: torch.device) -> torch.Tensor:
     import nibabel as nib
 
     img  = nib.load(str(nifti_path))
-    data = img.get_fdata(dtype=np.float32)          # (H, W, D)  or (D, H, W)
+    data = img.get_fdata(dtype=np.float32)
+    if data.ndim != 3:
+        raise ValueError(f"Expected 3-D NIfTI at {nifti_path}, got shape {data.shape}")
 
-    # nibabel returns (H, W, D); convert to (D, H, W) if needed
-    if data.ndim == 3 and data.shape[2] < data.shape[0]:
-        data = np.transpose(data, (2, 0, 1))        # (H,W,D) → (D,H,W)
+    d0, d1, d2 = data.shape
+    if d0 <= d1 and d0 <= d2:
+        data_dhw = data
+    elif d2 <= d0 and d2 <= d1:
+        data_dhw = np.transpose(data, (2, 0, 1))
+    else:
+        logger.warning(
+            "Ambiguous NIfTI axis order for %s with shape %s; assuming (D,H,W).",
+            nifti_path,
+            data.shape,
+        )
+        data_dhw = data
 
-    tensor = torch.from_numpy(data).unsqueeze(0)    # → (1, D, H, W)
+    tensor = torch.from_numpy(np.ascontiguousarray(data_dhw)).unsqueeze(0)    # → (1, D, H, W)
     return tensor.unsqueeze(0).to(device)           # → (1, 1, D, H, W)
+
+
+def tune_threshold_from_val(
+    val_df: pd.DataFrame,
+    metric: str,
+    threshold_min: float,
+    threshold_max: float,
+    threshold_steps: int,
+    fallback_threshold: float,
+) -> Tuple[float, Optional[float]]:
+    """Tune Sick-class decision threshold on validation predictions.
+
+    Args:
+        val_df:             Predictions DataFrame on validation split.
+        metric:             "f1_macro" | "balanced_accuracy" | "youden_j".
+        threshold_min:      Lower bound of threshold search interval.
+        threshold_max:      Upper bound of threshold search interval.
+        threshold_steps:    Number of points in the search grid.
+        fallback_threshold: Returned when tuning is not feasible.
+
+    Returns:
+        Tuple of (best_threshold, best_metric_score_or_none).
+    """
+    if val_df.empty:
+        logger.warning("Validation threshold tuning skipped: empty validation predictions.")
+        return float(fallback_threshold), None
+
+    y_true = val_df["true_label"].to_numpy(dtype=int)
+    y_prob = val_df["prob_Sick"].to_numpy(dtype=float)
+
+    if len(np.unique(y_true)) < 2:
+        logger.warning(
+            "Validation threshold tuning skipped: only one class present in validation labels."
+        )
+        return float(fallback_threshold), None
+
+    thresholds = np.linspace(float(threshold_min), float(threshold_max), int(threshold_steps))
+    best_threshold = float(fallback_threshold)
+    best_score = -np.inf
+
+    for thr in thresholds:
+        y_pred = (y_prob >= float(thr)).astype(int)
+
+        if metric == "f1_macro":
+            score = float(f1_score(y_true, y_pred, average="macro", zero_division=0))
+        elif metric == "balanced_accuracy":
+            score = float(balanced_accuracy_score(y_true, y_pred))
+        elif metric == "youden_j":
+            cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+            if cm.shape != (2, 2):
+                continue
+            tn, fp, fn, tp = cm.ravel()
+            tpr = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            tnr = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+            score = float(tpr + tnr - 1.0)
+        else:
+            raise ValueError(
+                f"Unknown threshold metric '{metric}'. "
+                "Choose from: f1_macro, balanced_accuracy, youden_j."
+            )
+
+        if score > best_score or (
+            np.isclose(score, best_score) and abs(float(thr) - 0.5) < abs(best_threshold - 0.5)
+        ):
+            best_score = score
+            best_threshold = float(thr)
+
+    if not np.isfinite(best_score):
+        return float(fallback_threshold), None
+
+    return best_threshold, float(best_score)
 
 
 def save_confusion_matrix(
@@ -375,6 +458,7 @@ def compute_and_save_metrics(
     df: pd.DataFrame,
     out_dir: Path,
     class_names: List[str],
+    extra_metrics: Optional[Dict[str, object]] = None,
 ) -> Dict:
     """Compute metrics from the predictions DataFrame and save reports.
 
@@ -411,7 +495,7 @@ def compute_and_save_metrics(
     else:
         sensitivity = specificity = precision = float("nan")
 
-    metrics = {
+    metrics: Dict[str, object] = {
         "n_patients":   len(df),
         "accuracy":     round(acc, 4),
         "auroc":        round(auroc, 4) if not np.isnan(auroc) else None,
@@ -420,6 +504,9 @@ def compute_and_save_metrics(
         "specificity":  round(float(specificity), 4),
         "precision":    round(float(precision), 4),
     }
+
+    if extra_metrics:
+        metrics.update(extra_metrics)
 
     # Print summary
     print("\n" + "=" * 55)
@@ -485,6 +572,27 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--threshold", type=float, default=0.5,
         help="Probability threshold for predicting 'Sick' (0.0–1.0).",
+    )
+    p.add_argument(
+        "--tune_threshold_on_val", action="store_true",
+        help="Tune decision threshold on validation split before evaluating requested split(s).",
+    )
+    p.add_argument(
+        "--threshold_metric", type=str, default="f1_macro",
+        choices=["f1_macro", "balanced_accuracy", "youden_j"],
+        help="Metric optimized during validation threshold tuning.",
+    )
+    p.add_argument(
+        "--threshold_min", type=float, default=0.05,
+        help="Minimum threshold in validation threshold search.",
+    )
+    p.add_argument(
+        "--threshold_max", type=float, default=0.95,
+        help="Maximum threshold in validation threshold search.",
+    )
+    p.add_argument(
+        "--threshold_steps", type=int, default=181,
+        help="Number of threshold grid points in validation threshold search.",
     )
     p.add_argument(
         "--output_dir", type=Path,
@@ -556,13 +664,65 @@ def main() -> None:
     # Run inference
     # ------------------------------------------------------------------
     splits = ["train", "val", "test"] if "all" in args.splits else args.splits
+    effective_threshold = float(args.threshold)
+
+    threshold_meta: Dict[str, object] = {
+        "threshold": round(float(effective_threshold), 4),
+        "threshold_source": "manual",
+    }
+
+    if args.tune_threshold_on_val:
+        val_predictions = run_predictions(
+            cfg              = cfg,
+            checkpoint       = checkpoint,
+            manifest_df      = manifest_df,
+            splits           = ["val"],
+            threshold        = effective_threshold,
+            out_dir          = out_dir,
+            generate_gradcam = False,
+            device           = device,
+        )
+
+        tuned_threshold, tuned_score = tune_threshold_from_val(
+            val_df=val_predictions,
+            metric=args.threshold_metric,
+            threshold_min=float(args.threshold_min),
+            threshold_max=float(args.threshold_max),
+            threshold_steps=int(args.threshold_steps),
+            fallback_threshold=effective_threshold,
+        )
+        effective_threshold = float(tuned_threshold)
+        threshold_meta = {
+            "threshold": round(float(effective_threshold), 4),
+            "threshold_source": "val_tuned",
+            "threshold_metric": args.threshold_metric,
+            "threshold_tuning_score": (
+                round(float(tuned_score), 4) if tuned_score is not None else None
+            ),
+            "threshold_search": {
+                "min": float(args.threshold_min),
+                "max": float(args.threshold_max),
+                "steps": int(args.threshold_steps),
+            },
+        }
+        logger.info(
+            "Using validation-tuned threshold %.4f (metric=%s, score=%s)",
+            effective_threshold,
+            args.threshold_metric,
+            "n/a" if tuned_score is None else f"{tuned_score:.4f}",
+        )
+        if "val" in splits:
+            logger.warning(
+                "Requested evaluation includes 'val' while threshold is tuned on val; "
+                "validation metrics may be optimistic."
+            )
 
     predictions_df = run_predictions(
         cfg            = cfg,
         checkpoint     = checkpoint,
         manifest_df    = manifest_df,
         splits         = splits,
-        threshold      = args.threshold,
+        threshold      = effective_threshold,
         out_dir        = out_dir,
         generate_gradcam = args.gradcam,
         device         = device,
@@ -586,6 +746,7 @@ def main() -> None:
         df          = predictions_df,
         out_dir     = out_dir,
         class_names = [CLASS_NAMES[i] for i in sorted(CLASS_NAMES)],
+        extra_metrics = threshold_meta,
     )
 
     # ------------------------------------------------------------------

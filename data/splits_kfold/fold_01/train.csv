@@ -1,0 +1,17 @@
+patient_id,class,series_path,image_count,processed_path
+Normal/Directory_5,Normal,data/raw/Normal/Directory_5/1-short,5,data/processed/Normal_Directory_5.nii.gz
+Sick/Directory_20,Sick,data/raw/Sick/Directory_20/series0001-Body,3,data/processed/Sick_Directory_20.nii.gz
+Sick/Directory_17,Sick,data/raw/Sick/Directory_17/series0001-Body,3,data/processed/Sick_Directory_17.nii.gz
+Normal/Directory_6,Normal,data/raw/Normal/Directory_6/1-short,5,data/processed/Normal_Directory_6.nii.gz
+Normal/Directory_3,Normal,data/raw/Normal/Directory_3/1-short,5,data/processed/Normal_Directory_3.nii.gz
+Normal/Directory_8,Normal,data/raw/Normal/Directory_8/1-short,5,data/processed/Normal_Directory_8.nii.gz
+Sick/Directory_18,Sick,data/raw/Sick/Directory_18/series0001-Body,3,data/processed/Sick_Directory_18.nii.gz
+Normal/Directory_12,Normal,data/raw/Normal/Directory_12/1-short,7,data/processed/Normal_Directory_12.nii.gz
+Normal/Directory_14,Normal,data/raw/Normal/Directory_14/1-short,5,data/processed/Normal_Directory_14.nii.gz
+Normal/Directory_15,Normal,data/raw/Normal/Directory_15/1-short,7,data/processed/Normal_Directory_15.nii.gz
+Normal/Directory_16,Normal,data/raw/Normal/Directory_16/1-short,5,data/processed/Normal_Directory_16.nii.gz
+Normal/Directory_7,Normal,data/raw/Normal/Directory_7/1-short,5,data/processed/Normal_Directory_7.nii.gz
+Sick/Directory_23,Sick,data/raw/Sick/Directory_23/series0001-Body,3,data/processed/Sick_Directory_23.nii.gz
+Sick/Directory_26,Sick,data/raw/Sick/Directory_26/series0002-Body,3,data/processed/Sick_Directory_26.nii.gz
+Normal/Directory_9,Normal,data/raw/Normal/Directory_9/1-short,5,data/processed/Normal_Directory_9.nii.gz
+Sick/Directory_25,Sick,data/raw/Sick/Directory_25/series0001-Body,3,data/processed/Sick_Directory_25.nii.gz

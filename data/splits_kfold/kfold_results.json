@@ -1,0 +1,90 @@
+{
+  "folds": [
+    {
+      "fold": "fold_01",
+      "run_dir": "/home/moon/Desktop/cardiac-mri-multi-agent-hcm/results/logs/kfold/fold_01/cls_resnet3d_18_20260312_021056",
+      "test_results": {
+        "loss": 0.696679413318634,
+        "accuracy": 0.3333333333333333,
+        "auroc": 0.25,
+        "f1": 0.25,
+        "sensitivity": 0.0,
+        "specificity": 0.5,
+        "precision": 0.0
+      }
+    },
+    {
+      "fold": "fold_02",
+      "run_dir": "/home/moon/Desktop/cardiac-mri-multi-agent-hcm/results/logs/kfold/fold_02/cls_resnet3d_18_20260312_023139",
+      "test_results": {
+        "loss": 0.6980103850364685,
+        "accuracy": 0.6,
+        "auroc": 0.6666666666666667,
+        "f1": 0.375,
+        "sensitivity": 0.0,
+        "specificity": 1.0,
+        "precision": 0.0
+      }
+    },
+    {
+      "fold": "fold_03",
+      "run_dir": "/home/moon/Desktop/cardiac-mri-multi-agent-hcm/results/logs/kfold/fold_03/cls_resnet3d_18_20260312_024952",
+      "test_results": {
+        "loss": 0.7174072861671448,
+        "accuracy": 0.2,
+        "auroc": 0.33333333333333337,
+        "f1": 0.16666666666666666,
+        "sensitivity": 0.5,
+        "specificity": 0.0,
+        "precision": 0.25
+      }
+    },
+    {
+      "fold": "fold_04",
+      "run_dir": "/home/moon/Desktop/cardiac-mri-multi-agent-hcm/results/logs/kfold/fold_04/cls_resnet3d_18_20260312_031607",
+      "test_results": {
+        "loss": 0.7127575874328613,
+        "accuracy": 0.6,
+        "auroc": 0.16666666666666669,
+        "f1": 0.375,
+        "sensitivity": 0.0,
+        "specificity": 1.0,
+        "precision": 0.0
+      }
+    },
+    {
+      "fold": "fold_05",
+      "run_dir": "/home/moon/Desktop/cardiac-mri-multi-agent-hcm/results/logs/kfold/fold_05/cls_resnet3d_18_20260312_033541",
+      "test_results": {
+        "loss": 0.6780622601509094,
+        "accuracy": 0.6,
+        "auroc": 1.0,
+        "f1": 0.375,
+        "sensitivity": 0.0,
+        "specificity": 1.0,
+        "precision": 0.0
+      }
+    }
+  ],
+  "aggregate": {
+    "n_folds": 5,
+    "mean": {
+      "accuracy": 0.4666666666666667,
+      "auroc": 0.4833333333333334,
+      "f1": 0.3083333333333333,
+      "loss": 0.7005833864212037,
+      "precision": 0.05,
+      "sensitivity": 0.1,
+      "specificity": 0.7
+    },
+    "std": {
+      "accuracy": 0.16865480854231354,
+      "auroc": 0.30912061651652345,
+      "f1": 0.08579691784155835,
+      "loss": 0.01385869577938485,
+      "precision": 0.10000000000000002,
+      "sensitivity": 0.20000000000000004,
+      "specificity": 0.4
+    }
+  }
+}

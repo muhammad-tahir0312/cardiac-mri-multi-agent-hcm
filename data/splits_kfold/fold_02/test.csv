@@ -1,0 +1,6 @@
+patient_id,class,series_path,image_count,processed_path
+Normal/Directory_1,Normal,data/raw/Normal/Directory_1/1-short,5,data/processed/Normal_Directory_1.nii.gz
+Normal/Directory_9,Normal,data/raw/Normal/Directory_9/1-short,5,data/processed/Normal_Directory_9.nii.gz
+Sick/Directory_20,Sick,data/raw/Sick/Directory_20/series0001-Body,3,data/processed/Sick_Directory_20.nii.gz
+Sick/Directory_17,Sick,data/raw/Sick/Directory_17/series0001-Body,3,data/processed/Sick_Directory_17.nii.gz
+Normal/Directory_12,Normal,data/raw/Normal/Directory_12/1-short,7,data/processed/Normal_Directory_12.nii.gz

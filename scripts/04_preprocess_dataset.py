@@ -1,7 +1,7 @@
 """
 scripts/04_preprocess_dataset.py
 
-Phase 2 — Batch DICOM-to-NIfTI preprocessing across the entire dataset.
+Phase 2 — Batch JPEG-series-to-NIfTI preprocessing across the entire dataset.
 
 Reads the split CSVs produced by ``03_create_patient_splits.py``, runs the
 RouterAgent + IngestionAgent + PreprocessingAgent pipeline for every patient,
@@ -12,7 +12,8 @@ The output filename follows the convention:
 
 A manifest CSV (``data/processed/manifest.csv``) is written upon completion
 with columns:
-    patient_id | class | split | processed_path | status | error_msg
+    patient_id | class | split | patient_dir | selected_series |
+    processed_path | status | error_msg
 
 This manifest can be used by :class:`~src.data.cardiac_dataset.CardiacMRIDataset`
 via its ``processed_path`` column to skip the path-inference logic.
@@ -62,7 +63,7 @@ logger = logging.getLogger(__name__)
 def _process_one(
     patient_id: str,
     class_label: str,
-    series_path_str: str,
+    patient_dir_str: str,
     processed_root_str: str,
     config_path_str: str,
     overwrite: bool,
@@ -75,18 +76,21 @@ def _process_one(
     Args:
         patient_id:         Patient identifier string (e.g. ``"Normal/Directory_1"``).
         class_label:        ``"Normal"`` or ``"Sick"``.
-        series_path_str:    String path to the patient directory (not series).
+        patient_dir_str:    String path to the patient directory.
         processed_root_str: String path to the output root.
         config_path_str:    String path to the YAML config file.
         overwrite:          Re-process even if the output file already exists.
 
     Returns:
-        Dict with keys ``patient_id``, ``class``, ``processed_path``,
+        Dict with keys ``patient_id``, ``class``, ``patient_dir``,
+        ``selected_series``, ``processed_path``,
         ``status`` (``"ok"`` / ``"skipped"`` / ``"error"``), ``error_msg``.
     """
     result: Dict = {
         "patient_id": patient_id,
         "class": class_label,
+        "patient_dir": patient_dir_str,
+        "selected_series": "",
         "processed_path": "",
         "status": "error",
         "error_msg": "",
@@ -116,10 +120,9 @@ def _process_one(
             result["status"] = "skipped"
             return result
 
-        # Patient directory = parent of series_path recorded in CSV
-        patient_dir = Path(series_path_str)  # series_path col stores patient dir
+        patient_dir = Path(patient_dir_str)
         if not patient_dir.is_dir():
-            patient_dir = patient_dir.parent
+            raise FileNotFoundError(f"Patient directory not found: {patient_dir}")
 
         # Router
         router = RouterAgent(
@@ -128,8 +131,15 @@ def _process_one(
         )
         best_series = router.select_series(patient_dir)
         if best_series is None:
-            # Fallback: use the provided path directly
-            best_series = Path(series_path_str)
+            series_dirs = sorted([s for s in patient_dir.iterdir() if s.is_dir()])
+            if not series_dirs:
+                raise ValueError(f"No series directories found in patient dir: {patient_dir}")
+            best_series = max(
+                series_dirs,
+                key=lambda p: len(list(p.rglob("*.jpg"))),
+            )
+
+        result["selected_series"] = str(best_series)
 
         # Ingest
         ingestor = IngestionAgent()
@@ -166,7 +176,7 @@ def load_all_patients(splits_dir: Path) -> pd.DataFrame:
                     ``test.csv``.
 
     Returns:
-        DataFrame with columns ``patient_id``, ``class``, ``series_path``,
+        DataFrame with columns ``patient_id``, ``class``, ``patient_dir``,
         ``split``.
 
     Raises:
@@ -185,8 +195,16 @@ def load_all_patients(splits_dir: Path) -> pd.DataFrame:
         frames.append(df)
 
     combined = pd.concat(frames, ignore_index=True)
-    # Deduplicate: keep one representative series per patient
-    combined = combined.drop_duplicates(subset=["patient_id"]).reset_index(drop=True)
+    combined["patient_dir"] = combined["series_path"].map(
+        lambda p: str(Path(p).parent)
+    )
+
+    # Deduplicate to one row per patient after deriving patient_dir.
+    combined = (
+        combined[["patient_id", "class", "split", "patient_dir"]]
+        .drop_duplicates(subset=["patient_id"])
+        .reset_index(drop=True)
+    )
     logger.info(
         "Total unique patients to process: %d  "
         "(Normal: %d | Sick: %d)",
@@ -204,7 +222,7 @@ def parse_args() -> argparse.Namespace:
         Parsed namespace.
     """
     parser = argparse.ArgumentParser(
-        description="Batch-convert DICOM series to preprocessed NIfTI volumes."
+        description="Batch-convert JPEG MRI series to preprocessed NIfTI volumes."
     )
     parser.add_argument(
         "--config", type=Path, default=Path("src/config/base.yaml"),
@@ -254,7 +272,7 @@ def main() -> None:
 
     if args.dry_run:
         logger.info("[DRY RUN] Would process %d patients → %s", len(patients_df), args.output)
-        print(patients_df[["patient_id", "class", "split"]].to_string(index=False))
+        print(patients_df[["patient_id", "class", "split", "patient_dir"]].to_string(index=False))
         return
 
     args.output.mkdir(parents=True, exist_ok=True)
@@ -264,7 +282,7 @@ def main() -> None:
         (
             row["patient_id"],
             row["class"],
-            row["series_path"],
+            row["patient_dir"],
             str(args.output),
             str(args.config),
             args.overwrite,

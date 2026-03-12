@@ -93,13 +93,20 @@ class IngestionAgent:
 
     Args:
         img_extension: File extension for image files (default ``".jpg"``).
+        rescale:       Backward-compatible no-op flag kept for callers that
+                       previously ingested DICOM with rescale options.
 
     Attributes:
         img_extension (str): Image file suffix.
     """
 
-    def __init__(self, img_extension: str = ".jpg") -> None:
+    def __init__(
+        self,
+        img_extension: str = ".jpg",
+        rescale: Optional[bool] = None,
+    ) -> None:
         self.img_extension = img_extension
+        self.rescale = bool(rescale) if rescale is not None else False
 
     # ------------------------------------------------------------------
     # Public API

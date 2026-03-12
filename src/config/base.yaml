@@ -136,6 +136,12 @@ training:
   amp:           true        # automatic mixed precision
 
   # Class-imbalance handling
+  # imbalance_strategy = "loss_weights" | "sampler" | "none"
+  #   - loss_weights: weighted loss, no weighted sampler
+  #   - sampler: weighted sampler, unweighted loss
+  #   - none: standard random sampling + unweighted loss
+  imbalance_strategy: "loss_weights"
+
   # loss = "cross_entropy" | "focal" | "weighted_cross_entropy"
   loss: "weighted_cross_entropy"
   focal_gamma: 2.0

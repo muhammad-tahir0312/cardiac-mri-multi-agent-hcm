@@ -344,6 +344,14 @@ def main() -> None:
     # ------------------------------------------------------------------
     # DataLoaders
     # ------------------------------------------------------------------
+    imbalance_strategy = str(cfg.training.get("imbalance_strategy", "loss_weights")).lower()
+    if imbalance_strategy not in {"loss_weights", "sampler", "none"}:
+        raise ValueError(
+            f"Unknown training.imbalance_strategy '{imbalance_strategy}'. "
+            "Choose from: loss_weights, sampler, none."
+        )
+    logger.info("Imbalance strategy: %s", imbalance_strategy)
+
     logger.info("Building DataLoaders …")
     loaders = build_dataloaders(cfg)
     train_loader = loaders["train"]
@@ -353,7 +361,7 @@ def main() -> None:
     # Class weights
     # ------------------------------------------------------------------
     class_weights: Optional[torch.Tensor] = None
-    if cfg.training.compute_class_weights:
+    if imbalance_strategy == "loss_weights" and cfg.training.compute_class_weights:
         import pandas as pd
         train_csv = Path(cfg.paths.splits) / "train.csv"
         if train_csv.exists():
@@ -365,6 +373,11 @@ def main() -> None:
                 labels_arr, int(cfg.classification.num_classes)
             )
             logger.info("Class weights: %s", class_weights.tolist())
+    elif imbalance_strategy != "loss_weights":
+        logger.info(
+            "Class-weight computation skipped because imbalance_strategy='%s'.",
+            imbalance_strategy,
+        )
 
     # ------------------------------------------------------------------
     # Agent

@@ -212,10 +212,28 @@ class CardiacMRIDataset(Dataset):
             raise FileNotFoundError(f"Processed NIfTI not found: {path}")
         nifti = nib.load(str(path))
         data: np.ndarray = nifti.get_fdata(dtype=np.float32)
-        # NIfTI canonical storage is (H,W,D); convert to (D,H,W) and add C dim
-        if data.ndim == 3:
-            data = np.transpose(data, (2, 0, 1))       # (H,W,D) → (D,H,W)
-        tensor = torch.from_numpy(data).unsqueeze(0)    # → (1, D, H, W)
+
+        if data.ndim != 3:
+            raise ValueError(
+                f"Expected 3-D NIfTI volume for {path}, got shape {data.shape}"
+            )
+
+        # Keep the depth axis first. Most generated files in this project are
+        # already saved as (D, H, W), but this branch also supports (H, W, D).
+        d0, d1, d2 = data.shape
+        if d0 <= d1 and d0 <= d2:
+            data_dhw = data
+        elif d2 <= d0 and d2 <= d1:
+            data_dhw = np.transpose(data, (2, 0, 1))
+        else:
+            logger.warning(
+                "Ambiguous NIfTI axis order for %s with shape %s; assuming (D,H,W).",
+                path,
+                data.shape,
+            )
+            data_dhw = data
+
+        tensor = torch.from_numpy(np.ascontiguousarray(data_dhw)).unsqueeze(0)    # → (1, D, H, W)
         return tensor
 
     def _build_cache(self) -> None:
@@ -388,6 +406,13 @@ def build_dataloaders(
     splits_dir    = Path(cfg.paths.splits)
     processed_dir = Path(cfg.paths.data_processed)
     class_to_idx: Dict[str, int] = dict(cfg.data.class_to_idx)
+    imbalance_strategy = str(cfg.training.get("imbalance_strategy", "loss_weights")).lower()
+
+    if imbalance_strategy not in {"loss_weights", "sampler", "none"}:
+        raise ValueError(
+            f"Unknown training.imbalance_strategy '{imbalance_strategy}'. "
+            "Choose from: loss_weights, sampler, none."
+        )
 
     from src.agents.preprocessing_agent import PreprocessingAgent
     preprocessor = PreprocessingAgent(cfg)
@@ -405,24 +430,26 @@ def build_dataloaders(
                 augment=is_train,
             )
         else:
+            def _train_tensor_transform(tensor: torch.Tensor) -> torch.Tensor:
+                if preprocessor.train_transforms is None:
+                    return tensor
+                return preprocessor._apply_torchio(tensor)
+
             dataset = CardiacMRIDataset(
                 split_csv=csv_path,
                 processed_root=processed_dir,
                 class_to_idx=class_to_idx,
-                transform=(
-                    (lambda t: preprocessor.preprocess(t.squeeze(0).numpy(), augment=True))
-                    if is_train else None
-                ),
+                transform=(_train_tensor_transform if is_train else None),
                 augment=is_train,
                 cache_in_memory=(cache_train and is_train),
             )
 
-        if is_train and cfg.training.compute_class_weights:
+        if is_train and imbalance_strategy == "sampler":
             sampler = build_weighted_sampler(dataset.labels)
             shuffle = False
         else:
             sampler = None
-            shuffle = False  # val/test must stay ordered
+            shuffle = is_train  # val/test must stay ordered
 
         loader = DataLoader(
             dataset,
@@ -436,8 +463,8 @@ def build_dataloaders(
         )
         loaders[split] = loader
         logger.info(
-            "DataLoader '%s': %d samples, batch_size=%d, weighted_sampler=%s",
-            split, len(dataset), cfg.training.batch_size, sampler is not None,
+            "DataLoader '%s': %d samples, batch_size=%d, weighted_sampler=%s, imbalance_strategy=%s",
+            split, len(dataset), cfg.training.batch_size, sampler is not None, imbalance_strategy,
         )
 
     return loaders
