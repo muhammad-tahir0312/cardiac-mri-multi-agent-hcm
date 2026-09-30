@@ -1,0 +1,151 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CMR — default configuration
+#
+# Everything the pipeline needs to run lives here. Change this file, not the code.
+# Override any value from the shell:      CMR_DEVICE=cuda cmr run --config full
+# Override the whole file:                cmr --config-file configs/hpc.yaml run ...
+# ─────────────────────────────────────────────────────────────────────────────
+
+paths:
+  # Root of the three datasets. Everything else is derived from this.
+  data_root: "~/Downloads/cardio_dataset"
+  acdc: "{data_root}/ACDC"
+  mnms: "{data_root}/MnMs"
+  mnms2: "{data_root}/MnM2"
+  artifacts: "{data_root}/cmr/artifacts"
+  guidelines: "{data_root}/cmr/guidelines"   # PDFs for the RAG corpus
+
+compute:
+  # auto | mps | cuda | cpu
+  #   auto → cuda if available, else mps, else cpu.  Works on the Mac AND on UM HPC.
+  device: "auto"
+  num_workers: 4
+  seeds: [0, 1, 2]          # CineMA ships 3 fine-tuned seeds → free ensemble
+
+# ─── Agent 1: segmentation ───────────────────────────────────────────────────
+segmentation:
+  backend: "cinema"                 # cinema | nnunet | groundtruth
+  cinema_repo: "mathpluscode/CineMA"
+  # Which fine-tuned checkpoint. NOTE: each was fine-tuned on the named dataset,
+  # so acdc_sax -> ACDC is SUPERVISED, and acdc_sax -> M&Ms is TRUE ZERO-SHOT (RQ3).
+  checkpoint: "acdc_sax"            # acdc_sax | mnms_sax | mnms2_sax
+  ensemble: true                    # average the 3 seeds; also yields the entropy map
+  tta: false                        # test-time augmentation (turned on by the feedback loop)
+  patch_size: [256, 256]
+  batch_size: 4
+
+# ─── Agent 2: quantification ─────────────────────────────────────────────────
+quantification:
+  myocardial_density_g_per_ml: 1.05   # Kawel-Boehm (SCMR 2025). NOT Leiner.
+  # ESC 2021 & AHA/ACC/HFSA 2022 agree. The proposal's <40 / 40-50 / >50 rule
+  # misclassifies BOTH 40.0 and 50.0 — these are the correct cut-points.
+  hf_thresholds:
+    hfref_max: 40.0     # LVEF <= 40      -> HFrEF
+    hfpef_min: 50.0     # LVEF >= 50      -> HFpEF
+                        # 40 < LVEF < 50  -> HFmrEF
+  # A value this close to a cut-point triggers decision-boundary-aware recomputation.
+  boundary_margin_pct: 2.0
+  gate:
+    lvef_min: 5.0
+    lvef_max: 90.0
+    # CALIBRATED ON GROUND TRUTH (180 subjects, all 3 datasets) so that >=99% of expert
+    # annotations pass. A gate that rejects the ground truth measures nothing.
+    #   specks below min_component_px are annotation noise, not anatomy
+    #   Myo legitimately splits into 2 arcs at the basal outflow tract -> allow 2
+    min_component_px: 10
+    max_components_per_slice: 2
+    max_stray_fraction: 0.15        # 3-D: fraction of a structure NOT in its largest blob
+    require_esv_lt_edv: true
+
+# ─── Agent 3a: retrieval ─────────────────────────────────────────────────────
+retrieval:
+  mode: "hybrid"                    # hybrid | dense | bm25 | none
+  embedder: "medcpt"                # medcpt | biobert
+  models:
+    medcpt: "ncbi/MedCPT-Query-Encoder"
+    medcpt_doc: "ncbi/MedCPT-Article-Encoder"
+    biobert: "dmis-lab/biobert-base-cased-v1.2"
+  top_k: 5
+  fetch_k: 15                       # retrieve 3k, then fuse and cut to k
+  chunk_tokens: 350
+  chunk_overlap: 50
+  fusion: "rrf"                     # reciprocal rank fusion
+  rrf_k: 60
+
+# ─── Agent 3b: report generation ─────────────────────────────────────────────
+llm:
+  # provider: ollama | gemini | groq | openrouter | none
+  #   ollama     -> local, free, unlimited, offline, FULLY REPRODUCIBLE (default)
+  #   gemini     -> free tier, 1500 req/day, stronger model (ablation row)
+  #   none       -> template baseline, zero LLM (the honest floor)
+  provider: "ollama"
+  model: "qwen2.5:14b"
+  temperature: 0.0                  # deterministic. This is a measurement, not a chat.
+  max_tokens: 1500
+  timeout_s: 180
+  retries: 3
+
+  # ── Hallucination enforcement (cmr/guardrails.py) ──────────────────────────
+  # These are INVARIANTS, not preferences. A report that violates one is not emitted.
+  #   1. every citation chunk_id must resolve in the corpus index
+  #   2. every number must trace to Agent 2, or appear verbatim in a cited passage
+  #   3. hf_category is Agent 2's arithmetic — the model does not get a vote
+  #   4. no assertions about LGE / perfusion / valves / wall motion — never imaged
+  # On violation: regenerate with the violations named. After max_repairs, strip provably
+  # fabricated citations; if it STILL fails, raise and emit no diagnosis at all.
+  enforce_invariants: true
+  max_repairs: 2
+
+  # ── Security ───────────────────────────────────────────────────────────────
+  # provider: ollama keeps every byte on this machine. Set allow_remote_llm: true only if
+  # you consciously accept sending measurements + guideline text to a third party. Images
+  # and identifiers are NEVER sent under any provider.
+  allow_remote_llm: true
+
+  providers:
+    # In-process transformers. No server, no port, no daemon — which is exactly what you
+    # want inside a SLURM job, and what keeps working when macOS's Metal compiler service
+    # falls over and takes ollama's llama-server with it.
+    local:
+      model: "Qwen/Qwen2.5-1.5B-Instruct"
+      device: null            # null -> compute.device (cuda on HPC, mps on the Mac)
+    ollama:
+      base_url: "http://localhost:11434/v1"
+      api_key: "ollama"             # ignored by the server, required by the client
+    gemini:
+      base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+      api_key_env: "GEMINI_API_KEY"
+      model: "gemini-2.5-flash"
+    groq:
+      base_url: "https://api.groq.com/openai/v1"
+      api_key_env: "GROQ_API_KEY"
+      model: "llama-3.3-70b-versatile"
+    openrouter:
+      base_url: "https://openrouter.ai/api/v1"
+      api_key_env: "OPENROUTER_API_KEY"
+      model: "meta-llama/llama-3.3-70b-instruct:free"
+
+# ─── Agent 4: explainability ─────────────────────────────────────────────────
+xai:
+  method: "seg_grad_cam"            # Vinogradova et al. 2020 — NOT vanilla Grad-CAM
+  target_layer: "auto"
+  uncertainty: "entropy"            # from the 3-seed ensemble; free
+  save_overlays: true
+
+# ─── Orchestration ───────────────────────────────────────────────────────────
+orchestration:
+  gate: true                        # plausibility gate (H3)
+  feedback: true                    # decision-boundary-aware recomputation (H2, C12)
+  max_iterations: 2                 # the loop is BOUNDED. Non-negotiable.
+  refuse_on_gate_failure: true      # Agent 3 will not diagnose a broken mask (C10)
+  trace: true                       # JSONL per subject per node — the H3 evidence
+
+# ─── Evaluation ──────────────────────────────────────────────────────────────
+evaluation:
+  bootstrap_n: 10000
+  ci: 0.95
+  stratify_by: ["vendor", "centre", "pathology"]
+  boundary_band: [35.0, 55.0]       # H2 is tested inside this LVEF band only
+
+logging:
+  level: "INFO"

@@ -1,0 +1,120 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# UM HPC cluster (CUDA). Same pipeline, different machine.
+#
+#   module load python/3.11 cuda
+#   source /path/to/cmr/.venv/bin/activate
+#   cmr --config-file configs/hpc.yaml run --config full
+#
+# Only the things that actually differ from configs/default.yaml are here; the
+# rest is inherited by using this file as a full replacement, so keep it in sync
+# if you change a threshold in default.yaml.
+# ─────────────────────────────────────────────────────────────────────────────
+
+paths:
+  # Set CMR_DATA_ROOT in your SLURM script instead of editing this, if you prefer.
+  data_root: "/scratch/$USER/cardio_dataset"
+  acdc: "{data_root}/ACDC"
+  mnms: "{data_root}/MnMs"
+  mnms2: "{data_root}/MnM2"
+  artifacts: "{data_root}/cmr/artifacts"
+  guidelines: "{data_root}/cmr/guidelines"
+
+compute:
+  device: "cuda"          # the whole reason this file exists
+  num_workers: 8
+  seeds: [0, 1, 2]
+
+segmentation:
+  backend: "cinema"
+  cinema_repo: "mathpluscode/CineMA"
+  checkpoint: "acdc_sax"
+  ensemble: true
+  tta: false
+  patch_size: [256, 256]
+  batch_size: 16          # 16 GB unified memory on the Mac -> 4; a real GPU -> 16+
+
+quantification:
+  myocardial_density_g_per_ml: 1.05
+  hf_thresholds:
+    hfref_max: 40.0
+    hfpef_min: 50.0
+  boundary_margin_pct: 2.0
+  gate:
+    lvef_min: 5.0
+    lvef_max: 90.0
+    min_component_px: 10
+    max_components_per_slice: 2
+    max_stray_fraction: 0.15
+    require_esv_lt_edv: true
+
+retrieval:
+  mode: "hybrid"
+  embedder: "medcpt"
+  models:
+    medcpt: "ncbi/MedCPT-Query-Encoder"
+    medcpt_doc: "ncbi/MedCPT-Article-Encoder"
+    biobert: "dmis-lab/biobert-base-cased-v1.2"
+  top_k: 5
+  fetch_k: 15
+  chunk_tokens: 350
+  chunk_overlap: 50
+  fusion: "rrf"
+  rrf_k: 60
+
+llm:
+  # On a compute node with no internet, run ollama on the node itself:
+  #     ollama serve &            (or: srun --gres=gpu:1 ollama serve)
+  # A GPU node runs qwen2.5:14b far faster than the M4 does.
+  provider: "ollama"
+  model: "qwen2.5:14b"
+  temperature: 0.0
+  max_tokens: 1500
+  timeout_s: 180
+  retries: 3
+  enforce_invariants: true
+  max_repairs: 2
+  allow_remote_llm: true
+  providers:
+    # In-process transformers. No server, no port, no daemon — which is exactly what you
+    # want inside a SLURM job, and what keeps working when macOS's Metal compiler service
+    # falls over and takes ollama's llama-server with it.
+    local:
+      model: "Qwen/Qwen2.5-1.5B-Instruct"
+      device: null            # null -> compute.device (cuda on HPC, mps on the Mac)
+    ollama:
+      base_url: "http://localhost:11434/v1"
+      api_key: "ollama"
+    gemini:
+      base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+      api_key_env: "GEMINI_API_KEY"
+      model: "gemini-2.5-flash"
+    groq:
+      base_url: "https://api.groq.com/openai/v1"
+      api_key_env: "GROQ_API_KEY"
+      model: "llama-3.3-70b-versatile"
+    openrouter:
+      base_url: "https://openrouter.ai/api/v1"
+      api_key_env: "OPENROUTER_API_KEY"
+      model: "meta-llama/llama-3.3-70b-instruct:free"
+
+xai:
+  method: "seg_grad_cam"
+  target_layer: "auto"
+  uncertainty: "entropy"
+  save_overlays: true
+
+orchestration:
+  gate: true
+  feedback: true
+  max_iterations: 2
+  refuse_on_gate_failure: true
+  trace: true
+
+evaluation:
+  bootstrap_n: 10000
+  ci: 0.95
+  stratify_by: ["vendor", "centre", "pathology"]
+  boundary_band: [35.0, 55.0]
+
+logging:
+  level: "INFO"

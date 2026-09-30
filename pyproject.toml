@@ -1,0 +1,45 @@
+[project]
+name = "cmr"
+version = "1.0.0"
+description = "Multi-Agent System for Automated Cardiac MRI Analysis and Decision Support"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy", "pandas", "scipy", "pyarrow", "pyyaml", "pydantic>=2", "tqdm", "requests",
+    "nibabel", "SimpleITK",
+    "torch", "monai", "scikit-learn",
+    "transformers", "faiss-cpu", "rank-bm25", "pypdf",
+    "openai",
+    "matplotlib",
+    "fastapi", "uvicorn", "python-multipart",  # `cmr serve` — the viewer + live upload runs
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "httpx"]  # httpx: fastapi's TestClient
+
+[project.scripts]
+cmr = "cmr.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["cmr*", "baselines*"]
+
+[tool.setuptools.package-data]
+cmr = ["index.html"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's File(...)/Form(...) as argument defaults is the framework's own required
+# pattern (it reads the call, not the resulting default, at request time) — not the mutable-
+# default-argument footgun B008 exists to catch. Query(...) is bugbear's default allowlist;
+# File/Form are the same shape and belong there too.
+extend-immutable-calls = ["fastapi.File", "fastapi.Form"]
+
+[tool.pytest.ini_options]
+markers = ["slow: runs over the full 855-subject dataset"]
+testpaths = ["tests"]

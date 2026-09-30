@@ -1,0 +1,8 @@
+.venv/
+artifacts/
+guidelines/*.pdf
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/

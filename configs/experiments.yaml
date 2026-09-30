@@ -1,0 +1,133 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# The ablation grid IS this file. It is data, not code.
+#
+# Every row becomes artifacts/runs/{name}_{hash}/ — so no ablation can silently
+# overwrite another, and Table 3.3 of the thesis is GENERATED from this file
+# rather than typed by hand.
+#
+#     cmr run  --config full
+#     cmr run  --config no_rag
+#     cmr eval --config full
+#
+# Each row maps onto a hypothesis:
+#   H1  grounding helps ............... full  vs  no_rag
+#   H2  boundary-aware recomputation ... full  vs  no_feedback   (LVEF in [35,55] only)
+#   H3  decomposition exposes failure .. full  vs  no_gate       (corrupted / hard cases)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── the system ───────────────────────────────────────────────────────────────
+full:
+  retriever: hybrid
+  embedder: medcpt
+  provider: ollama
+  llm: qwen2.5:14b
+  gate: true
+  feedback: true
+
+# ── H1: does guideline grounding help? ───────────────────────────────────────
+no_rag:                      # measurements -> LLM, ungrounded. The H1 ablation.
+  retriever: none
+  embedder: medcpt
+  provider: ollama
+  llm: qwen2.5:14b
+  gate: true
+  feedback: true
+
+# ── retrieval ablations (CardAIc showed hybrid > either half alone) ──────────
+dense_only:
+  retriever: dense
+  embedder: medcpt
+  provider: ollama
+  llm: qwen2.5:14b
+  gate: true
+  feedback: true
+
+bm25_only:
+  retriever: bm25
+  embedder: medcpt
+  provider: ollama
+  llm: qwen2.5:14b
+  gate: true
+  feedback: true
+
+# ── embedder ablation: the one we promised the panel ─────────────────────────
+biobert:                     # BioBERT is a masked LM; MedCPT is TRAINED for retrieval
+  retriever: hybrid
+  embedder: biobert
+  provider: ollama
+  llm: qwen2.5:14b
+  gate: true
+  feedback: true
+
+# ── H3: does the gate expose failure a monolith would hide? ──────────────────
+no_gate:
+  retriever: hybrid
+  embedder: medcpt
+  provider: ollama
+  llm: qwen2.5:14b
+  gate: false
+  feedback: true
+
+# ── H2: does boundary-aware recomputation help where it matters? ─────────────
+no_feedback:
+  retriever: hybrid
+  embedder: medcpt
+  provider: ollama
+  llm: qwen2.5:14b
+  gate: true
+  feedback: false
+
+# ── LLM ablations: is the architecture or the model doing the work? ──────────
+small_llm:
+  retriever: hybrid
+  embedder: medcpt
+  provider: ollama
+  llm: qwen2.5:7b
+  gate: true
+  feedback: true
+
+strong_llm:                  # free tier, 1500 req/day — needs GEMINI_API_KEY
+  retriever: hybrid
+  embedder: medcpt
+  provider: gemini
+  llm: gemini-2.5-flash
+  gate: true
+  feedback: true
+
+# ── the honest floor: no LLM at all ──────────────────────────────────────────
+# A template CANNOT hallucinate, so this will score ~1.0 on factual consistency
+# and embarrass the full system. Include it anyway. Reporting the baseline that
+# flatters you least is what makes the rest credible — and the gap between this
+# and `full` is exactly the value the LLM adds.
+template:
+  retriever: none
+  embedder: medcpt
+  provider: none
+  llm: none
+  gate: true
+  feedback: false
+
+# ── the thin vertical slice ──────────────────────────────────────────────────
+# Ground-truth masks + template report + no retrieval. Proves the ORCHESTRATION
+# works end-to-end before Agent 1 or Agent 3 exist. Also the C14 answer made
+# executable: this configuration involves ZERO trained components.
+vertical_slice:
+  backend: groundtruth
+  retriever: none
+  embedder: medcpt
+  provider: none
+  llm: none
+  gate: true
+  feedback: false
+
+# ── Agent 3 proving run: GT masks + full RAG + local LLM ─────────────────────
+# Isolates the reasoning stack from segmentation. Use it to develop and evaluate
+# Agents 3/4 without waiting hours for Agent 1 to re-segment 830 subjects.
+gt_rag:
+  backend: groundtruth
+  retriever: hybrid
+  embedder: medcpt
+  provider: ollama
+  llm: qwen2.5:14b
+  gate: true
+  feedback: false
